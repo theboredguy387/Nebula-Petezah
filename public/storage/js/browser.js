@@ -97,6 +97,15 @@ function createTab(url = store.homepage) {
   };
 
   frame.frame.src = url === "petezah://newtab" ? "/newpage.html" : url;
+  frame.frame.onload = function() {
+    try {
+      const doc = frame.frame.contentDocument;
+      if (doc && (doc.title.includes("Just a moment") || doc.title.includes("Checking your browser"))) {
+        frame.frame.src = "/static/google-embed.html#" + encodeURIComponent(tab.url);
+      }
+    } catch (e) {}
+  };
+
   frame.frame.style.transform = `scale(${tab.zoomLevel})`;
   frame.frame.style.transformOrigin = "0 0";
   frame.frame.style.width = `${100 / tab.zoomLevel}%`;
@@ -313,7 +322,6 @@ function updateTabsUI() {
     },
   });
 
-  // Add context menu for tabs
   tabsContainer.querySelectorAll(".tab").forEach((tabElement) => {
     tabElement.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -378,17 +386,17 @@ function updateAddressBar() {
   if (addressBar && activeTab) {
     addressBar.value = activeTab.url;
     const url = activeTab.url;
-    // homemade bypasses for sites that work better on uv then scram
-    if (url.startsWith("https://www.youtube.com") || url === "www.youtube.com") {
-      console.log("Switching iframe src to YouTube embed");
-      activeTab.frame.frame.src = "/static/youtube-embed.html#https://youtube.com";
+    if (url.startsWith("petezah://newtab")) {
+      activeTab.frame.frame.src = "/newpage.html";
     }
-    if (url.startsWith("https://discord.com") || url === "discord.com") {
-      console.log("Switching iframe src to Discord embed");
-      activeTab.frame.frame.src = "/static/embed.html#https://discord.com";
+    if (url.startsWith("https://www.youtube.com") || url.startsWith("youtube.com") || url === "www.youtube.com") {
+      activeTab.frame.frame.src = "/static/youtube-embed.html#" + url;
     }
-    if (url.startsWith("https://www.google.com") || url === "www.google.com" || url === "www.google.ca" || url === "https://www.google.ca") {
-      console.log("Switching iframe src to Google embed");
+    if (url.startsWith("https://discord.com") || url.startsWith("discord.com") || url === "discord.com") {
+      activeTab.frame.frame.src = "/static/embed.html#" + url;
+    }
+    if (url.startsWith("https://www.google.com") || url.startsWith("www.google.com") || url === "www.google.com" || 
+        url.startsWith("https://www.google.ca") || url.startsWith("www.google.ca") || url === "www.google.ca") {
       activeTab.frame.frame.src = "/static/google-embed.html";
     }
     const isFavorited = store.favorites.includes(url);
@@ -424,7 +432,6 @@ function handleSubmit() {
   }
 
   if (url.startsWith("https://www.youtube.com") || url === "www.youtube.com") {
-    console.log("Switching iframe src to YouTube embed");
     activeTab.frame.frame.src = "/static/youtube-embed.html#https://youtube.com";
     activeTab.url = url;
     activeTab.favicon = getFaviconUrl(url);
