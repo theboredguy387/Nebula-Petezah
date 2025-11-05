@@ -7,6 +7,12 @@
       "categories": []
     },
     {
+      "label": "1v1.LoL",
+      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/58.png",
+      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/58.html",
+      "categories": []
+    },
+    {
       "label": "Tag",
       "url": "/iframe.html?url=/storage/ag/g/tag",
       "imageUrl": "/storage/images/main/taggame.jpg",
@@ -50,24 +56,6 @@
       ]
     },
     {
-      "label": "Clash Royale",
-      "url": "/iframe.html?url=/storage/ag/g/clash-royale",
-      "imageUrl": "/storage/images/main/clash.jpeg",
-      "categories": [
-        "skill",
-        "action"
-      ]
-    },
-    {
-      "label": "Sky Riders",
-      "url": "/iframe.html?url=/storage/ag/g2/sky-riders/",
-      "imageUrl": "/storage/images/main3/skyriders.png",
-      "categories": [
-        "action",
-        "racing"
-      ]
-    },
-    {
       "label": "Smashy Roads",
       "url": "/iframe.html?url=/storage/ag/g/smashyroad",
       "imageUrl": "/storage/images/main/smashy.jpg",
@@ -81,6 +69,42 @@
       "imageUrl": "/storage/images/main/smashyroad.webp",
       "categories": [
         "action"
+      ]
+    },
+    {
+      "label": "Clash Royale",
+      "url": "/iframe.html?url=/storage/ag/g/clash-royale",
+      "imageUrl": "/storage/images/main/clash.jpeg",
+      "categories": [
+        "skill",
+        "action"
+      ]
+    },
+    {
+      "label": "Drive Mad",
+      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/35.png",
+      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/35.html",
+      "categories": []
+    },
+    {
+      "label": "Retro Bowl",
+      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/33.png",
+      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/33.html",
+      "categories": []
+    },
+    {
+      "label": "Retro Bowl College",
+      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/34.png",
+      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/34.html",
+      "categories": []
+    },
+    {
+      "label": "Sky Riders",
+      "url": "/iframe.html?url=/storage/ag/g2/sky-riders/",
+      "imageUrl": "/storage/images/main3/skyriders.png",
+      "categories": [
+        "action",
+        "racing"
       ]
     },
     {
@@ -115,6 +139,13 @@
       "categories": [
         "shooting"
       ]
+    },
+    {
+      "label": "Bad Parenting 1",
+      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/166.png",
+      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/166.html",
+      "featured": true,
+      "categories": []
     },
     {
       "label": "Highway Racer",
@@ -510,24 +541,6 @@
       "categories": []
     },
     {
-      "label": "Retro Bowl",
-      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/33.png",
-      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/33.html",
-      "categories": []
-    },
-    {
-      "label": "Retro Bowl College",
-      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/34.png",
-      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/34.html",
-      "categories": []
-    },
-    {
-      "label": "Drive Mad",
-      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/35.png",
-      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/35.html",
-      "categories": []
-    },
-    {
       "label": "Monster Tracks",
       "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/36.png",
       "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/36.html",
@@ -657,12 +670,6 @@
       "label": "Monkey Mart",
       "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/57.png",
       "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/57.html",
-      "categories": []
-    },
-    {
-      "label": "1v1.LoL",
-      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/58.png",
-      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/58.html",
       "categories": []
     },
     {
@@ -1308,13 +1315,6 @@
       "categories": []
     },
     {
-      "label": "Bad Parenting 1",
-      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/166.png",
-      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/166.html",
-      "featured": true,
-      "categories": []
-    },
-    {
       "label": "Blade Ball",
       "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/167.png",
       "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/167.html",
@@ -1533,13 +1533,6 @@
       "label": "Five Nights at Winston's",
       "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/204.png",
       "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/204.html",
-      "categories": []
-    },
-    {
-      "label": "Buckshot Roulette",
-      "imageUrl": "https://cdn.jsdelivr.net/gh/gn-math/covers@main/205.png",
-      "url": "/iframe.html?url=/pages/other/interpreter/index.html?url=https://cdn.jsdelivr.net/gh/gn-math/html@main/205.html",
-      "featured": true,
       "categories": []
     },
     {
