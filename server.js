@@ -117,6 +117,24 @@ app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
 app.use(session({ secret: process.env.SESSION_SECRET, resave: false, saveUninitialized: false, cookie: { secure: false } }));
 
+app.use(
+  "/api/gn-math/covers",
+  createProxyMiddleware({
+    target: "https://cdn.jsdelivr.net/gh/gn-math/covers@main",
+    changeOrigin: true,
+    pathRewrite: { "^/api/gn-math/covers": "" },
+  })
+);
+
+app.use(
+  "/api/gn-math/html",
+  createProxyMiddleware({
+    target: "https://cdn.jsdelivr.net/gh/gn-math/html@main",
+    changeOrigin: true,
+    pathRewrite: { "^/api/gn-math/html": "" },
+  })
+);
+
 function toIPv4(ip) {
   if (!ip) return '127.0.0.1';
   if (ip.includes(',')) ip = ip.split(',')[0].trim();
