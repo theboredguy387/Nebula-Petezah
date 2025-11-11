@@ -383,9 +383,9 @@
     <div class="section">
       <div class="section-title"><i class="fas fa-bolt"></i> Quick Proxy & Tools</div>
       <div class="btn-group" style="margin-bottom:16px;">
-        <button class="btn btn-secondary" onclick="openInIframe('/search.html')"><i class="fas fa-globe"></i> Open Proxy</button>
-        <button class="btn btn-secondary" onclick="openInIframe('/static/scram-embed.html#https://byod.petezahgames.com/pages/other/ai/')"><i class="fas fa-robot"></i> AI Playground</button>
-        <button class="btn btn-secondary" onclick="openInIframe('/pages/g.html')"><i class="fas fa-gamepad"></i> Games</button>
+        <button class="btn btn-secondary quick-proxy-btn" data-url="/search.html"><i class="fas fa-globe"></i> Open Proxy</button>
+        <button class="btn btn-secondary quick-proxy-btn" data-url="/static/scram-embed.html#https://byod.petezahgames.com/pages/other/ai/"><i class="fas fa-robot"></i> AI Playground</button>
+        <button class="btn btn-secondary quick-proxy-btn" data-url="/pages/g.html"><i class="fas fa-gamepad"></i> Games</button>
       </div>
       <div class="form-group">
         <label for="favorite-games">Favorite Games (comma separated)</label>
@@ -854,6 +854,19 @@
         }
       } catch {}
     })();
+
+    // Quick Proxy & Tools button logic
+    document.querySelectorAll('.quick-proxy-btn').forEach(btn => {
+      btn.onclick = function(e) {
+        e.preventDefault();
+        const url = btn.getAttribute('data-url') || btn.href;
+        if (window.parent !== window && window.parent.postMessage) {
+          window.parent.postMessage({ type: 'navigate', url }, '*');
+        } else {
+          window.location.href = url;
+        }
+      };
+    });
 
     loadProfile();
   </script>

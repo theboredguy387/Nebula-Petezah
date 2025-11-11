@@ -53,6 +53,9 @@ try {
   if (!columnNames.includes('age')) {
     db.exec('ALTER TABLE users ADD COLUMN age INTEGER');
   }
+  if (!columnNames.includes('ip')) {
+    db.exec('ALTER TABLE users ADD COLUMN ip TEXT');
+  }
 } catch (error) {
   console.error('Migration error:', error);
 }
