@@ -373,3 +373,12 @@ iframe {
 	background: #fff;
 	color: #151a2d;
 }
+
+#cloakFrame {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	border: none;
+}
