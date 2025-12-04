@@ -1,7 +1,5 @@
-
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,50 +7,24 @@
   <link rel="icon" href="favicon.webp" />
   <link rel="prefetch" href="/scram/scramjet.worker.js" />
   <link rel="prefetch" href="/scram/scramjet.shared.js" />
-  <link
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&amp;family=Inter+Tight:ital,wght@0,100..900;1,100..900&amp;family=Inter:wght@100..900&amp;display=swap&amp;"
-    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=Inter+Tight:ital,wght@0,100..900;1,100..900&family=Inter:wght@100..900&display=swap" rel="stylesheet" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Hind:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Hind:wght@300;400;500;600;700&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap"
-    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Hind:wght@300;400;500;600;700&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dreamland"></script>
   <style>
-    body,
-    html {
-      margin: 0;
-      padding: 0;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background-color: #000;
-    }
-
-    #iframe-container {
-      width: 100%;
-      height: 100%;
-    }
-
-    #iframe-container iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      background-color: #fff;
-    }
+    body, html {margin:0;padding:0;width:100vw;height:100vh;overflow:hidden;background-color:#000}
+    #iframe-container {width:100%;height:100%}
+    #iframe-container iframe {width:100%;height:100%;border:none;background-color:#fff}
   </style>
   <script src="/baremux/index.js"></script>
   <script src="/scram/scramjet.all.js"></script>
   <script src="/config.js"></script>
 </head>
-
 <body>
   <div id="iframe-container"></div>
-
   <script>
     const { ScramjetController } = $scramjetLoadController();
     const scramjet = new ScramjetController({
@@ -65,92 +37,78 @@
     });
     scramjet.init();
     navigator.serviceWorker.register("./sw.js");
-
     const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
-
     const store = {
       url: "https://",
-      wispurl:
-        _CONFIG?.wispurl ||
-        (location.protocol === "https:" ? "wss" : "ws") +
-        "://" +
-        location.host +
-        "/wisp/",
-      bareurl:
-        _CONFIG?.bareurl ||
-        (location.protocol === "https:" ? "https" : "http") +
-        "://" +
-        location.host +
-        "/bare/",
+      wispurl: _CONFIG?.wispurl || (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/wisp/",
+      bareurl: _CONFIG?.bareurl || (location.protocol === "https:" ? "https" : "http") + "://" + location.host + "/bare/",
       proxy: "",
       transport: "/epoxy/index.mjs",
     };
 
+    function getUrlFromLocation() {
+      const params = new URLSearchParams(location.search);
+      const noRedirect = params.has("no-redirect");
+      let url = location.hash.substring(1);
 
-    async function loadFromHash() {
-      const hash = window.location.hash.substring(1);
+      if (!url.startsWith("http://") && !url.startsWith("https://")) && (url = "https://" + url);
+      if (!url) url = "https://google.com/";
 
-      if (hash) {
-        let url = hash;
-
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-          url = "https://" + url;
-        }
-
-        await waitForTransport();
-
-        const frame = scramjet.createFrame();
-        document.getElementById("iframe-container").appendChild(frame.frame);
-
-        frame.go(url);
-      } else {
-        await waitForTransport();
-        const frame = scramjet.createFrame();
-        document.getElementById("iframe-container").appendChild(frame.frame);
-        frame.go("https://google.com/");
-      }
+      return { url, noRedirect };
     }
 
     async function waitForTransport() {
       let attempts = 0;
       const maxAttempts = 10;
-
       while (attempts < maxAttempts) {
-        try {
-          await connection.setTransport("/epoxy/index.mjs", [{ wisp: store.wispurl }]);
-          return;
-        } catch (e) {
-          try {
-            await connection.setTransport("/baremod/index.mjs", [store.bareurl]);
-            return;
-          } catch (e2) {
-            try {
-              await connection.setTransport("/libcurl/index.mjs", [{ wisp: store.wispurl }]);
-              return;
-            } catch (e3) {
-              attempts++;
-              if (attempts >= maxAttempts) {
-                console.error("Failed to set any transport after", maxAttempts, "attempts");
-                throw new Error("No bare clients available");
-              }
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-          }
-        }
+        try { await connection.setTransport("/epoxy/index.mjs", [{ wisp: store.wispurl }]); return; } catch {}
+        try { await connection.setTransport("/baremod/index.mjs", [store.bareurl]); return; } catch {}
+        try { await connection.setTransport("/libcurl/index.mjs", [{ wisp: store.wispurl }]); return; } catch {}
+        attempts++;
+        await new Promise(r => setTimeout(r, 100));
       }
+      throw new Error("No transport available");
     }
 
-    window.addEventListener("hashchange", async () => {
+    async function loadFrame() {
       const container = document.getElementById("iframe-container");
       container.innerHTML = "";
+      await waitForTransport();
 
-      await loadFromHash();
-    });
+      const { url, noRedirect } = getUrlFromLocation();
 
-    window.addEventListener("load", async () => {
-      await loadFromHash();
-    });
+      const frame = scramjet.createFrame();
+
+      if (noRedirect) {
+        frame.frame.sandbox = "allow-scripts allow-same-origin allow-forms allow-modals allow-downloads";
+        frame.frame.style.pointerEvents = "none";
+        frame.frame.addEventListener("load", () => {
+          try {
+            const doc = frame.frame.contentDocument || frame.frame.contentWindow.document;
+            const blockPopups = () => {
+              doc.addEventListener("click", e => {
+                const a = e.target.closest("a");
+                if (a && a.target === "_blank") { e.preventDefault(); e.stopPropagation(); }
+              }, true);
+              doc.addEventListener("contextmenu", e => e.stopPropagation(), true);
+              doc.defaultView.open = () => null;
+              doc.defaultView.alert = () => null;
+              doc.defaultView.confirm = () => false;
+            };
+            const script = doc.createElement("script");
+            script.textContent = `(${blockPopups.toString()})();`;
+            doc.documentElement.appendChild(script);
+          } catch (e) {}
+          frame.frame.style.pointerEvents = "auto";
+        });
+      }
+
+      container.appendChild(frame.frame);
+      frame.go(url);
+    }
+
+    window.addEventListener("hashchange", loadFrame);
+    window.addEventListener("load", loadFrame);
   </script>
 </body>
-
 </html>
