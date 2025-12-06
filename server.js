@@ -383,7 +383,7 @@ app.get("/api/feedback", (req, res) => {
       FROM feedback f
       LEFT JOIN users u ON f.user_id = u.id
       ORDER BY f.created_at DESC
-      LIMIT 10000
+      LIMIT 100
     `).all();
     
     const sanitizedFeedback = feedback.map(f => {
@@ -502,7 +502,7 @@ app.get("/api/admin/users", (req, res) => {
       SELECT id, email, username, created_at, is_admin, avatar_url, bio, school, age, ip
       FROM users
       ORDER BY created_at DESC
-      LIMIT 100
+      LIMIT 10000
     `).all();
     const usersWithExtras = users.map(u => {
       let ip = 'N/A';
