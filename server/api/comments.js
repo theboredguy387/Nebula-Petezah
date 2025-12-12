@@ -165,5 +165,3 @@ export async function cleanupMaliciousCommentsHandler(req, res) {
     deletedCount 
   });
 }
-
-cleanupMaliciousComments();
