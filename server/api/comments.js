@@ -66,6 +66,20 @@ function validateContent(content) {
   return true;
 }
 
+function cleanupMaliciousComments() {
+  const allComments = db.prepare('SELECT id, content FROM comments').all();
+  let deletedCount = 0;
+  
+  for (const comment of allComments) {
+    if (!validateContent(comment.content)) {
+      db.prepare('DELETE FROM comments WHERE id = ?').run(comment.id);
+      deletedCount++;
+    }
+  }
+  
+  return deletedCount;
+}
+
 export async function addCommentHandler(req, res) {
   if (!req.session.user) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -138,3 +152,18 @@ export async function deleteCommentHandler(req, res) {
   
   res.json({ message: 'Comment deleted.' });
 }
+
+export async function cleanupMaliciousCommentsHandler(req, res) {
+  if (!req.session.user || !req.session.user.isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  
+  const deletedCount = cleanupMaliciousComments();
+  
+  res.json({ 
+    message: `Cleaned up ${deletedCount} malicious comment(s).`,
+    deletedCount 
+  });
+}
+
+cleanupMaliciousComments();
