@@ -266,6 +266,12 @@
       "categories": ["action"]
     },
     {
+      "label": "Crushed Adventures",
+      "url": "/iframe.html?url=/storage/ag/g/crushed-adventures",
+      "imageUrl": "/storage/images/main/crushed-ad.png",
+      "categories": ["skill"]
+    },
+    {
       "label": "Space Huggers",
       "url": "/iframe.html?url=/storage/ag/g/spacehuggers",
       "imageUrl": "/storage/images/main/spacehuggers.jpg",
