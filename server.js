@@ -138,8 +138,8 @@ function toIPv4(ip) {
 }
 
 const wsConnections = new Map();
-const MAX_WS_PER_IP = 8;
-const MAX_TOTAL_WS = 5000;
+const MAX_WS_PER_IP = 180;
+const MAX_TOTAL_WS = 30000;
 
 function cleanupWS(ip) {
   const count = wsConnections.get(ip) || 0;

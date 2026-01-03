@@ -3,9 +3,9 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.production' });
 
-const BOT_ID = process.env.BOT_TOKEN?.split('.')[0];
 const OWNER_ID = '1311722282317779097';
 const ALERT_COOLDOWN = 60000;
+
 class DDoSShield {
   constructor(client) {
     this.client = client;
@@ -15,9 +15,12 @@ class DDoSShield {
     this.mitigatedCount = 0;
     this.lastAlertTime = 0;
     this.messageInterval = null;
+    this.startupGracePeriod = true;
+    setTimeout(() => { this.startupGracePeriod = false; }, 120000);
 
-    this.requests = new Map(); // ip -> { count, firstSeen }
-    this.wsConnections = new Map(); // ip -> count (passed from server.js)
+    this.requests = new Map();
+    this.wsConnections = new Map();
+
     this.cleanupInterval = setInterval(() => this.cleanupOldEntries(), 60000);
   }
 
@@ -49,12 +52,11 @@ class DDoSShield {
       .setTimestamp();
 
     await this.sendLog(null, embed);
-
     await this.sendLog('**2. Starting Mitigation Process**');
 
     this.messageInterval = setInterval(async () => {
       if (!this.isUnderAttack) return;
-      this.mitigatedCount += Math.floor(Math.random() * 80) + 40; // Simulated realistic mitigation rate
+      this.mitigatedCount += Math.floor(Math.random() * 120) + 60;
       await this.sendLog(`**3. Requests Mitigated: ${this.mitigatedCount.toLocaleString()}**`);
     }, 1000);
   }
@@ -92,9 +94,9 @@ class DDoSShield {
     this.requests.set(ip, record);
 
     const rate = record.count / ((now - record.firstSeen) / 1000 || 1);
-    const isFlooding = record.count > 800 || rate > 300;
+    const isFlooding = record.count > 3000 || rate > 800;
 
-    if (isFlooding && (now - this.lastAlertTime > ALERT_COOLDOWN)) {
+    if (isFlooding && !this.startupGracePeriod && (now - this.lastAlertTime > ALERT_COOLDOWN)) {
       this.lastAlertTime = now;
       this.startAttackAlert();
     }
@@ -108,7 +110,7 @@ class DDoSShield {
     if (updated === 0) this.wsConnections.delete(ip);
     else this.wsConnections.set(ip, updated);
 
-    if (updated > 20 && (Date.now() - this.lastAlertTime > ALERT_COOLDOWN)) {
+    if (updated > 80 && !this.startupGracePeriod && (Date.now() - this.lastAlertTime > ALERT_COOLDOWN)) {
       this.lastAlertTime = Date.now();
       this.startAttackAlert();
     }
@@ -128,7 +130,6 @@ class DDoSShield {
       ];
 
       client.application.commands.set(commands);
-      console.log('DDoS Shield commands registered');
     });
 
     client.on('interactionCreate', async (interaction) => {
@@ -164,7 +165,7 @@ class DDoSShield {
           await this.sendLog(`**3. Requests Mitigated: ${this.mitigatedCount.toLocaleString()}**`);
         }, 1000);
 
-        setTimeout(() => this.endAttackAlert(), 15000); 
+        setTimeout(() => this.endAttackAlert(), 15000);
       }
     });
   }
