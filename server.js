@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import fileUpload from 'express-fileupload';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import session from 'express-session';
 import fs from 'fs';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -167,7 +167,12 @@ app.get('/results/:query', async (req, res) => {
 const signupLimiter = rateLimit({ windowMs: 3600000, max: 3, message: 'Too many accounts created from this IP, try again later.' });
 app.post('/api/signup', signupLimiter, signupHandler);
 
-const pfpLimiter = rateLimit({ windowMs: 3600000, max: 5, keyGenerator: req => req.session.user?.id || req.ip, message: 'Too many profile picture uploads, try again later.' });
+const pfpLimiter = rateLimit({
+  windowMs: 3600000,
+  max: 5,
+  keyGenerator: (req) => req.session.user?.id || ipKeyGenerator(req.ip),
+  message: 'Too many profile picture uploads, try again later.'
+});
 app.post('/api/upload-profile-pic', pfpLimiter, (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
   try {
@@ -190,7 +195,12 @@ app.post('/api/upload-profile-pic', pfpLimiter, (req, res) => {
   }
 });
 
-const localStorageLimiter = rateLimit({ windowMs: 60000, max: 10, keyGenerator: req => req.session.user?.id || req.ip, message: 'Too many localstorage saves, slow down' });
+const localStorageLimiter = rateLimit({
+  windowMs: 60000,
+  max: 10,
+  keyGenerator: (req) => req.session.user?.id || ipKeyGenerator(req.ip),
+  message: 'Too many localstorage saves, slow down'
+});
 app.post('/api/save-localstorage', localStorageLimiter, (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
   try {
