@@ -282,6 +282,15 @@ const conditionalGate = (req, res, next) => {
   if (authRoutes.includes(req.path)) {
     return next();
   }
+
+  if (!req.route && req.app._router) {
+    const matched = req.app._router.stack.some(layer => {
+      if (layer.route) return layer.route.path === req.path;
+      return false;
+    });
+    if (!matched) return next(); 
+  }
+
   return gateMiddleware(req, res, next);
 };
 app.use(conditionalGate);
