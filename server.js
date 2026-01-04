@@ -1,3 +1,4 @@
+
 import { baremuxPath } from '@mercuryworkshop/bare-mux/node';
 import { epoxyPath } from '@mercuryworkshop/epoxy-transport';
 import { scramjetPath } from '@mercuryworkshop/scramjet/path';
@@ -90,6 +91,24 @@ app.get('/scramjet.all.js.map', (req, res) => res.sendFile(path.join(scramjetPat
 
 app.use('/baremux/', express.static(baremuxPath));
 app.use('/epoxy/', express.static(epoxyPath));
+
+const verifyMiddleware = (req, res, next) => {
+  const verified = req.cookies?.verified === 'ok' || req.headers['x-bot-token'] === process.env.BOT_TOKEN;
+  const ua = req.headers['user-agent'] || '';
+  const isBrowser = /Mozilla|Chrome|Safari|Firefox|Edge/i.test(ua);
+  const acceptsHtml = req.headers.accept?.includes('text/html');
+
+  if (!isBrowser) return res.status(403).send('Forbidden');
+
+  if (verified && isBrowser) return next();
+
+  if (!acceptsHtml) return next();
+
+  res.cookie('verified', 'ok', { maxAge: 86400000, httpOnly: true, sameSite: 'Lax' });
+  res.status(200).send(`<!DOCTYPE html><html><body><script>document.cookie = "verified=ok; Max-Age=86400; SameSite=Lax";setTimeout(() => window.location.replace(window.location.pathname), 100);</script><noscript>Enable JavaScript to continue.</noscript></body></html>`);
+};
+
+app.use(verifyMiddleware);
 
 const apiLimiter = rateLimit({
   windowMs: 15000,
