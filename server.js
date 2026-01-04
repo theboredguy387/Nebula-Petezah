@@ -64,13 +64,17 @@ discordClient.login(process.env.BOT_TOKEN).catch(err => {
 
 shield.registerCommands(discordClient);
 
-const TOKEN_SECRET = process.env.TOKEN_SECRET || randomBytes(32).toString('hex');
-const TOKEN_VALIDITY = 86400000;
-const PROOF_CHALLENGE_SIZE = 16;
+if (!process.env.TOKEN_SECRET) {
+  throw new Error('CRITICAL: TOKEN_SECRET environment variable must be set');
+}
+const TOKEN_SECRET = process.env.TOKEN_SECRET;
+const TOKEN_VALIDITY = 3600000;
+const POW_DIFFICULTY = 18;
 
 const systemState = {
   cpuHigh: false,
   activeConnections: 0,
+  totalWS: 0,
   totalRequests: 0,
   lastCheck: Date.now()
 };
@@ -89,7 +93,7 @@ function createToken(features = { http: true, ws: true }) {
   return `${Buffer.from(payload).toString('base64url')}.${signature}`;
 }
 
-function verifyToken(token) {
+function verifyToken(token, req) {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
@@ -106,6 +110,15 @@ function verifyToken(token) {
     
     const data = JSON.parse(payload);
     if (data.exp < Date.now()) return null;
+    
+    if (req && data.fp) {
+      const ip = toIPv4(req.socket.remoteAddress);
+      const currentFP = createHmac('sha256', TOKEN_SECRET)
+        .update(ip + (req.headers['user-agent'] || ''))
+        .digest('hex')
+        .slice(0, 16);
+      if (data.fp !== currentFP) return null;
+    }
     
     return data;
   } catch {
@@ -167,15 +180,16 @@ app.get('/scramjet.all.js.map', (req, res) => res.sendFile(path.join(scramjetPat
 app.use('/baremux/', express.static(baremuxPath));
 app.use('/epoxy/', express.static(epoxyPath));
 
-app.get('/api/bot-challenge', (req, res) => {
-  const challenge = randomBytes(PROOF_CHALLENGE_SIZE).toString('base64url');
-  res.json({ challenge });
+app.get('/api/bot-challenge', rateLimit({ windowMs: 60000, max: 10 }), (req, res) => {
+  const challenge = randomBytes(16).toString('hex');
+  const difficulty = POW_DIFFICULTY;
+  res.json({ challenge, difficulty });
 });
 
 app.post('/api/bot-verify', express.json(), (req, res) => {
-  const { challenge, proof, timing } = req.body;
+  const { challenge, nonce, timing } = req.body;
   
-  if (!challenge || !proof || !timing) {
+  if (!challenge || !nonce || !timing) {
     return res.status(400).json({ error: 'Invalid proof' });
   }
   
@@ -183,16 +197,23 @@ app.post('/api/bot-verify', express.json(), (req, res) => {
     return res.status(503).json({ error: 'System under load' });
   }
   
-  const expectedProof = createHmac('sha256', challenge).update('client-proof').digest('hex');
-  const timingValid = timing > 0 && timing < 1000;
+  const hash = createHmac('sha256', challenge).update(nonce).digest('hex');
+  const leadingZeros = hash.match(/^0+/)?.[0].length || 0;
+  const timingValid = timing > 10 && timing < 30000;
   
-  if (proof === expectedProof && timingValid) {
-    const token = createToken();
+  if (leadingZeros >= Math.floor(POW_DIFFICULTY / 4) && timingValid) {
+    const ip = toIPv4(req.socket.remoteAddress);
+    const fingerprint = createHmac('sha256', TOKEN_SECRET)
+      .update(ip + (req.headers['user-agent'] || ''))
+      .digest('hex')
+      .slice(0, 16);
+    
+    const token = createToken({ http: true, ws: true, fp: fingerprint });
     res.cookie('bot_token', token, {
       maxAge: TOKEN_VALIDITY,
       httpOnly: true,
       sameSite: 'Lax',
-      secure: false
+      secure: true
     });
     return res.json({ success: true, token });
   }
@@ -211,7 +232,7 @@ const gateMiddleware = (req, res, next) => {
   }
   
   const token = extractToken(req);
-  const tokenData = verifyToken(token);
+  const tokenData = verifyToken(token, req);
   
   if (tokenData?.features?.http) {
     return next();
@@ -230,13 +251,22 @@ const gateMiddleware = (req, res, next) => {
 <script>
 (async()=>{
 const r=await fetch('/api/bot-challenge');
-const {challenge}=await r.json();
+const {challenge,difficulty}=await r.json();
 const start=performance.now();
-const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(challenge),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-const sig=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode('client-proof'));
-const proof=Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');
+let nonce=0;
+let hash='';
+while(true){
+const data=challenge+nonce;
+const buf=new TextEncoder().encode(data);
+const hashBuf=await crypto.subtle.digest('SHA-256',buf);
+hash=Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+const zeros=hash.match(/^0+/)?.[0].length||0;
+if(zeros>=Math.floor(difficulty/4))break;
+nonce++;
+if(nonce>1000000)break;
+}
 const timing=performance.now()-start;
-const v=await fetch('/api/bot-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge,proof,timing})});
+const v=await fetch('/api/bot-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge,nonce,timing})});
 if(v.ok)location.reload();
 })();
 </script>
@@ -253,7 +283,7 @@ const apiLimiter = rateLimit({
   windowMs: 15000,
   max: (req) => {
     const token = extractToken(req);
-    return verifyToken(token) ? 200 : 50;
+    return verifyToken(token, req) ? 200 : 50;
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -289,6 +319,7 @@ function cleanupWS(ip) {
   if (count <= 1) wsConnections.delete(ip);
   else wsConnections.set(ip, count - 1);
   systemState.activeConnections--;
+  systemState.totalWS--;
   shield.trackWS(ip, -1);
 }
 
@@ -588,15 +619,14 @@ const server = createServer((req, res) => {
 server.on('upgrade', (req, socket, head) => {
   const ip = toIPv4(req.socket.remoteAddress);
   const current = wsConnections.get(ip) || 0;
-  const total = [...wsConnections.values()].reduce((a, b) => a + b, 0);
 
-  if (total >= MAX_TOTAL_WS || current >= MAX_WS_PER_IP) {
+  if (systemState.totalWS >= MAX_TOTAL_WS || current >= MAX_WS_PER_IP) {
     shield.trackWS(ip, 1);
     return socket.destroy();
   }
 
   const token = extractToken(req);
-  const tokenData = verifyToken(token);
+  const tokenData = verifyToken(token, req);
   
   const wispPaths = ['/wisp/', '/api/wisp-premium/', '/api/alt-wisp-1/', '/api/alt-wisp-2/', '/api/alt-wisp-3/', '/api/alt-wisp-4/'];
   const isWisp = wispPaths.some(p => req.url.startsWith(p));
@@ -610,6 +640,7 @@ server.on('upgrade', (req, socket, head) => {
   shield.trackWS(ip, 1);
   wsConnections.set(ip, current + 1);
   systemState.activeConnections++;
+  systemState.totalWS++;
 
   socket.on('close', () => cleanupWS(ip));
   socket.on('error', () => cleanupWS(ip));
