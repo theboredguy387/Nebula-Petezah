@@ -6,7 +6,8 @@ import bareServerPkg from '@tomphttp/bare-server-node';
 import bcrypt from 'bcrypt';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, randomUUID } from 'crypto';
+import { Client, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
 import express from 'express';
 import fileUpload from 'express-fileupload';
@@ -19,7 +20,6 @@ import { createServer } from 'node:http';
 import { hostname } from 'node:os';
 import path, { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Client, GatewayIntentBits } from 'discord.js';
 import { ddosShield } from './secure.js';
 import { adminUserActionHandler } from './server/api/admin-user-action.js';
 import { addCommentHandler, getCommentsHandler } from './server/api/comments.js';
@@ -58,7 +58,7 @@ const discordClient = new Client({
 
 const shield = ddosShield(discordClient);
 
-discordClient.login(process.env.BOT_TOKEN).catch(err => {
+discordClient.login(process.env.BOT_TOKEN).catch((err) => {
   console.error('Failed to login Discord bot:', err.message);
 });
 
@@ -97,20 +97,20 @@ function verifyToken(token, req) {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
-  
+
   try {
     const payload = Buffer.from(parts[0], 'base64url').toString('utf8');
     const signature = parts[1];
-    
+
     const hmac = createHmac('sha256', TOKEN_SECRET);
     hmac.update(payload);
     const expected = hmac.digest('base64url');
-    
+
     if (signature !== expected) return null;
-    
+
     const data = JSON.parse(payload);
     if (data.exp < Date.now()) return null;
-    
+
     if (req && data.fp) {
       const ip = toIPv4(req.socket.remoteAddress);
       const currentFP = createHmac('sha256', TOKEN_SECRET)
@@ -119,7 +119,7 @@ function verifyToken(token, req) {
         .slice(0, 16);
       if (data.fp !== currentFP) return null;
     }
-    
+
     return data;
   } catch {
     return null;
@@ -129,12 +129,12 @@ function verifyToken(token, req) {
 function checkSystemPressure() {
   const now = Date.now();
   if (now - systemState.lastCheck < 1000) return systemState.cpuHigh;
-  
+
   systemState.lastCheck = now;
   const load = systemState.totalRequests / 10;
   systemState.cpuHigh = load > 5000 || systemState.activeConnections > 25000;
   systemState.totalRequests = 0;
-  
+
   return systemState.cpuHigh;
 }
 
@@ -143,13 +143,13 @@ function extractToken(req) {
   if (authHeader?.startsWith('Bearer ')) {
     return authHeader.slice(7);
   }
-  
+
   const cookieHeader = req.headers.cookie;
   if (cookieHeader) {
     const match = cookieHeader.match(/bot_token=([^;]+)/);
     if (match) return match[1];
   }
-  
+
   return null;
 }
 
@@ -167,7 +167,7 @@ app.use(
       } else {
         res.setHeader('Cache-Control', 'public, max-age=86400');
       }
-    },
+    }
   })
 );
 
@@ -188,26 +188,26 @@ app.get('/api/bot-challenge', rateLimit({ windowMs: 60000, max: 10 }), (req, res
 
 app.post('/api/bot-verify', express.json(), (req, res) => {
   const { challenge, nonce, timing } = req.body;
-  
+
   if (!challenge || !nonce || !timing) {
     return res.status(400).json({ error: 'Invalid proof' });
   }
-  
+
   if (checkSystemPressure()) {
     return res.status(503).json({ error: 'System under load' });
   }
-  
+
   const hash = createHmac('sha256', challenge).update(nonce).digest('hex');
   const leadingZeros = hash.match(/^0+/)?.[0].length || 0;
   const timingValid = timing > 10 && timing < 30000;
-  
+
   if (leadingZeros >= Math.floor(POW_DIFFICULTY / 4) && timingValid) {
     const ip = toIPv4(req.socket.remoteAddress);
     const fingerprint = createHmac('sha256', TOKEN_SECRET)
       .update(ip + (req.headers['user-agent'] || ''))
       .digest('hex')
       .slice(0, 16);
-    
+
     const token = createToken({ http: true, ws: true, fp: fingerprint });
     res.cookie('bot_token', token, {
       maxAge: TOKEN_VALIDITY,
@@ -217,31 +217,60 @@ app.post('/api/bot-verify', express.json(), (req, res) => {
     });
     return res.json({ success: true, token });
   }
-  
+
   res.status(403).json({ error: 'Verification failed' });
 });
 
 const gateMiddleware = (req, res, next) => {
   systemState.totalRequests++;
-  
+
   const ua = req.headers['user-agent'] || '';
   const isBrowser = /Mozilla|Chrome|Safari|Firefox|Edge/i.test(ua);
-  
-  if (!isBrowser && req.path !== '/api/bot-challenge' && req.path !== '/api/bot-verify') {
+
+  // Whitelist legitimate bots
+  const goodBots = [
+    /googlebot/i,
+    /bingbot/i,
+    /slurp/i, // Yahoo
+    /duckduckbot/i,
+    /baiduspider/i,
+    /yandexbot/i,
+    /facebookexternalhit/i,
+    /twitterbot/i,
+    /discordbot/i,
+    /telegrambot/i,
+    /whatsapp/i,
+    /linkedinbot/i,
+    /slackbot/i,
+    /archive\.org_bot/i,
+    /ia_archiver/i, 
+    /semrushbot/i,
+    /ahrefsbot/i,
+    /mj12bot/i, 
+    /dotbot/i
+  ];
+
+  const isGoodBot = goodBots.some((pattern) => pattern.test(ua));
+
+  if (!isBrowser && !isGoodBot && req.path !== '/api/bot-challenge' && req.path !== '/api/bot-verify') {
     return res.status(403).send('Forbidden');
   }
-  
+
+  if (isGoodBot) {
+    return next();
+  }
+
   const token = extractToken(req);
   const tokenData = verifyToken(token, req);
-  
+
   if (tokenData?.features?.http) {
     return next();
   }
-  
+
   if (checkSystemPressure()) {
     return res.status(503).send('Service temporarily unavailable');
   }
-  
+
   const acceptsHtml = req.headers.accept?.includes('text/html');
   if (acceptsHtml && isBrowser) {
     return res.send(`<!DOCTYPE html>
@@ -273,7 +302,7 @@ if(v.ok)location.reload();
 </body>
 </html>`);
   }
-  
+
   next();
 };
 
@@ -284,11 +313,11 @@ const conditionalGate = (req, res, next) => {
   }
 
   if (!req.route && req.app._router) {
-    const matched = req.app._router.stack.some(layer => {
+    const matched = req.app._router.stack.some((layer) => {
       if (layer.route) return layer.route.path === req.path;
       return false;
     });
-    if (!matched) return next(); 
+    if (!matched) return next();
   }
 
   return gateMiddleware(req, res, next);
@@ -316,8 +345,18 @@ app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
 app.use(session({ secret: process.env.SESSION_SECRET, resave: false, saveUninitialized: false, cookie: { secure: false } }));
 
-app.use('/api/gn-math/covers', createProxyMiddleware({ target: 'https://cdn.jsdelivr.net/gh/gn-math/covers@main', changeOrigin: true, pathRewrite: { '^/api/gn-math/covers': '' } }));
-app.use('/api/gn-math/html', createProxyMiddleware({ target: 'https://cdn.jsdelivr.net/gh/gn-math/html@main', changeOrigin: true, pathRewrite: { '^/api/gn-math/html': '' } }));
+app.use(
+  '/api/gn-math/covers',
+  createProxyMiddleware({
+    target: 'https://cdn.jsdelivr.net/gh/gn-math/covers@main',
+    changeOrigin: true,
+    pathRewrite: { '^/api/gn-math/covers': '' }
+  })
+);
+app.use(
+  '/api/gn-math/html',
+  createProxyMiddleware({ target: 'https://cdn.jsdelivr.net/gh/gn-math/html@main', changeOrigin: true, pathRewrite: { '^/api/gn-math/html': '' } })
+);
 
 function toIPv4(ip) {
   if (!ip) return '127.0.0.1';
@@ -347,7 +386,7 @@ app.get('/results/:query', async (req, res) => {
     const response = await fetch(`http://api.duckduckgo.com/ac?q=${encodeURIComponent(query)}&format=json`);
     if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
     const data = await response.json();
-    const suggestions = data.map(item => ({ phrase: item.phrase })).slice(0, 8);
+    const suggestions = data.map((item) => ({ phrase: item.phrase })).slice(0, 8);
     res.status(200).json(suggestions);
   } catch (error) {
     console.error('Error generating suggestions:', error.message);
@@ -401,7 +440,9 @@ app.post('/api/save-localstorage', localStorageLimiter, (req, res) => {
     JSON.parse(data);
     const sanitizedData = data;
     const now = Date.now();
-    db.prepare(`INSERT INTO user_settings (user_id, localstorage_data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET localstorage_data = ?, updated_at = ?`).run(req.session.user.id, sanitizedData, now, sanitizedData, now);
+    db.prepare(
+      `INSERT INTO user_settings (user_id, localstorage_data, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET localstorage_data = ?, updated_at = ?`
+    ).run(req.session.user.id, sanitizedData, now, sanitizedData, now);
     res.status(200).json({ message: 'LocalStorage saved' });
   } catch (error) {
     console.error('Save error:', error);
@@ -424,14 +465,21 @@ app.get('/api/verify-email', (req, res) => {
     if (!user) return res.status(400).send('<html><body><h1>Invalid or expired verification link</h1></body></html>');
     const now = Date.now();
     db.prepare('UPDATE users SET email_verified = 1, verification_token = NULL, updated_at = ? WHERE id = ?').run(now, user.id);
-    res.status(200).send('<html><body style="background:#0a1d37;color:#fff;font-family:Arial;text-align:center;padding:50px;"><h1>Email verified successfully!</h1><p>You can now log in to your account.</p><a href="/pages/settings/p.html" style="color:#3b82f6;">Go to Login</a></body></html>');
+    res
+      .status(200)
+      .send(
+        '<html><body style="background:#0a1d37;color:#fff;font-family:Arial;text-align:center;padding:50px;"><h1>Email verified successfully!</h1><p>You can now log in to your account.</p><a href="/pages/settings/p.html" style="color:#3b82f6;">Go to Login</a></body></html>'
+      );
   } catch (error) {
     console.error('Verification error:', error);
     res.status(500).send('<html><body><h1>Verification failed</h1></body></html>');
   }
 });
 
-app.post('/api/signout', (req, res) => { req.session.destroy(); res.status(200).json({ message: 'Signout successful' }); });
+app.post('/api/signout', (req, res) => {
+  req.session.destroy();
+  res.status(200).json({ message: 'Signout successful' });
+});
 
 app.get('/api/profile', (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -442,7 +490,14 @@ app.get('/api/profile', (req, res) => {
     if (user.is_admin === 1 && user.email === process.env.ADMIN_EMAIL) role = 'Owner';
     else if (user.is_admin === 3) role = 'Admin';
     else if (user.is_admin === 2) role = 'Staff';
-    res.status(200).json({ user: { id: user.id, email: user.email, user_metadata: { name: user.username, bio: user.bio, avatar_url: user.avatar_url }, app_metadata: { provider: 'email', is_admin: user.is_admin, role } } });
+    res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        user_metadata: { name: user.username, bio: user.bio, avatar_url: user.avatar_url },
+        app_metadata: { provider: 'email', is_admin: user.is_admin, role }
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -453,7 +508,13 @@ app.post('/api/update-profile', (req, res) => {
   try {
     const { username, bio, age, school, favgame, mood } = req.body;
     const now = Date.now();
-    db.prepare('UPDATE users SET username = ?, bio = ?, age = ?, school = ? WHERE id = ?').run(username || null, bio || null, age || null, school || null, req.session.user.id);
+    db.prepare('UPDATE users SET username = ?, bio = ?, age = ?, school = ? WHERE id = ?').run(
+      username || null,
+      bio || null,
+      age || null,
+      school || null,
+      req.session.user.id
+    );
     req.session.user.username = username;
     req.session.user.bio = bio;
     res.status(200).json({ message: 'Profile updated' });
@@ -487,7 +548,9 @@ app.delete('/api/delete-account', (req, res) => {
 
 app.get('/api/changelog', (req, res) => {
   try {
-    const changelogs = db.prepare(`SELECT c.*, u.username as author_name FROM changelog c LEFT JOIN users u ON c.author_id = u.id ORDER BY c.created_at DESC LIMIT 50`).all();
+    const changelogs = db
+      .prepare(`SELECT c.*, u.username as author_name FROM changelog c LEFT JOIN users u ON c.author_id = u.id ORDER BY c.created_at DESC LIMIT 50`)
+      .all();
     res.status(200).json({ changelogs });
   } catch (error) {
     console.error('Changelog error:', error);
@@ -497,14 +560,22 @@ app.get('/api/changelog', (req, res) => {
 
 app.get('/api/feedback', (req, res) => {
   try {
-    const isAdmin = req.session.user ? (() => {
-      try {
-        const user = db.prepare('SELECT is_admin, email FROM users WHERE id = ?').get(req.session.user.id);
-        return user && ((user.is_admin === 1 && user.email === process.env.ADMIN_EMAIL) || user.is_admin === 2 || user.is_admin === 3);
-      } catch { return false; }
-    })() : false;
-    const feedback = db.prepare(`SELECT f.*, u.username${isAdmin ? ', u.email' : ''} FROM feedback f LEFT JOIN users u ON f.user_id = u.id ORDER BY f.created_at DESC LIMIT 100`).all();
-    const sanitizedFeedback = feedback.map(f => {
+    const isAdmin = req.session.user
+      ? (() => {
+          try {
+            const user = db.prepare('SELECT is_admin, email FROM users WHERE id = ?').get(req.session.user.id);
+            return user && ((user.is_admin === 1 && user.email === process.env.ADMIN_EMAIL) || user.is_admin === 2 || user.is_admin === 3);
+          } catch {
+            return false;
+          }
+        })()
+      : false;
+    const feedback = db
+      .prepare(
+        `SELECT f.*, u.username${isAdmin ? ', u.email' : ''} FROM feedback f LEFT JOIN users u ON f.user_id = u.id ORDER BY f.created_at DESC LIMIT 100`
+      )
+      .all();
+    const sanitizedFeedback = feedback.map((f) => {
       const safe = { id: f.id, content: f.content, created_at: f.created_at, username: f.username || 'Anonymous' };
       if (isAdmin && f.email) safe.email = f.email;
       return safe;
@@ -525,7 +596,13 @@ app.post('/api/changelog', (req, res) => {
     if (!title || !content) return res.status(400).json({ error: 'Title and content are required' });
     const id = randomUUID();
     const now = Date.now();
-    db.prepare('INSERT INTO changelog (id, title, content, author_id, created_at) VALUES (?, ?, ?, ?, ?)').run(id, title, content, req.session.user.id, now);
+    db.prepare('INSERT INTO changelog (id, title, content, author_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      id,
+      title,
+      content,
+      req.session.user.id,
+      now
+    );
     res.status(201).json({ message: 'Changelog created', id });
   } catch (error) {
     console.error('Changelog create error:', error);
@@ -553,7 +630,9 @@ app.get('/api/admin/feedback', (req, res) => {
   try {
     const user = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.session.user.id);
     if (!user || !user.is_admin) return res.status(403).json({ error: 'Admin access required' });
-    const feedback = db.prepare(`SELECT f.*, u.email, u.username FROM feedback f LEFT JOIN users u ON f.user_id = u.id ORDER BY f.created_at DESC LIMIT 100`).all();
+    const feedback = db
+      .prepare(`SELECT f.*, u.email, u.username FROM feedback f LEFT JOIN users u ON f.user_id = u.id ORDER BY f.created_at DESC LIMIT 100`)
+      .all();
     res.status(200).json({ feedback });
   } catch (error) {
     console.error('Admin feedback error:', error);
@@ -580,12 +659,20 @@ app.get('/api/admin/users', (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const user = db.prepare('SELECT is_admin, email FROM users WHERE id = ?').get(req.session.user.id);
-    if (!user || !((user.is_admin === 1 && user.email === process.env.ADMIN_EMAIL) || user.is_admin === 2 || user.is_admin === 3)) return res.status(403).json({ error: 'Admin access required' });
-    const users = db.prepare(`SELECT id, email, username, created_at, is_admin, avatar_url, bio, school, age, ip FROM users ORDER BY created_at DESC LIMIT 10000`).all();
-    const usersWithExtras = users.map(u => {
+    if (!user || !((user.is_admin === 1 && user.email === process.env.ADMIN_EMAIL) || user.is_admin === 2 || user.is_admin === 3))
+      return res.status(403).json({ error: 'Admin access required' });
+    const users = db
+      .prepare(`SELECT id, email, username, created_at, is_admin, avatar_url, bio, school, age, ip FROM users ORDER BY created_at DESC LIMIT 10000`)
+      .all();
+    const usersWithExtras = users.map((u) => {
       let ip = 'N/A';
       if (user.is_admin === 1 && user.email === process.env.ADMIN_EMAIL) ip = u.ip || 'N/A';
-      return { ...u, ip, signup_link: null, role: u.is_admin === 1 && u.email === process.env.ADMIN_EMAIL ? 'Owner' : u.is_admin === 3 ? 'Admin' : u.is_admin === 2 ? 'Staff' : 'User' };
+      return {
+        ...u,
+        ip,
+        signup_link: null,
+        role: u.is_admin === 1 && u.email === process.env.ADMIN_EMAIL ? 'Owner' : u.is_admin === 3 ? 'Admin' : u.is_admin === 2 ? 'Staff' : 'User'
+      };
     });
     res.status(200).json({ users: usersWithExtras });
   } catch (error) {
@@ -620,8 +707,10 @@ const server = createServer((req, res) => {
   const ip = toIPv4(req.socket.remoteAddress);
   shield.trackRequest(ip);
 
-  const handleBareRequest = bareServer => {
-    try { bareServer.routeRequest(req, res); } catch (error) {
+  const handleBareRequest = (bareServer) => {
+    try {
+      bareServer.routeRequest(req, res);
+    } catch (error) {
       console.error('Bare server error:', error.message);
       if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain' }).end('Internal server error');
     }
@@ -643,10 +732,10 @@ server.on('upgrade', (req, socket, head) => {
 
   const token = extractToken(req);
   const tokenData = verifyToken(token, req);
-  
+
   const wispPaths = ['/wisp/', '/api/wisp-premium/', '/api/alt-wisp-1/', '/api/alt-wisp-2/', '/api/alt-wisp-3/', '/api/alt-wisp-4/'];
-  const isWisp = wispPaths.some(p => req.url.startsWith(p));
-  
+  const isWisp = wispPaths.some((p) => req.url.startsWith(p));
+
   if (isWisp && !tokenData?.features?.ws) {
     if (checkSystemPressure()) {
       return socket.destroy();
@@ -661,8 +750,10 @@ server.on('upgrade', (req, socket, head) => {
   socket.on('close', () => cleanupWS(ip));
   socket.on('error', () => cleanupWS(ip));
 
-  const handleBareUpgrade = bareServer => {
-    try { bareServer.routeUpgrade(req, socket, head); } catch (error) {
+  const handleBareUpgrade = (bareServer) => {
+    try {
+      bareServer.routeUpgrade(req, socket, head);
+    } catch (error) {
       console.error('Bare server upgrade error:', error.message);
       socket.destroy();
       cleanupWS(ip);
@@ -677,7 +768,9 @@ server.on('upgrade', (req, socket, head) => {
     if (req.url.startsWith('/api/alt-wisp-2/')) req.url = req.url.replace('/api/alt-wisp-2/', '/wisp/');
     if (req.url.startsWith('/api/alt-wisp-3/')) req.url = req.url.replace('/api/alt-wisp-3/', '/wisp/');
     if (req.url.startsWith('/api/alt-wisp-4/')) req.url = req.url.replace('/api/alt-wisp-4/', '/wisp/');
-    try { wisp.routeRequest(req, socket, head); } catch (error) {
+    try {
+      wisp.routeRequest(req, socket, head);
+    } catch (error) {
       console.error('WISP server error:', error.message);
       socket.destroy();
       cleanupWS(ip);
