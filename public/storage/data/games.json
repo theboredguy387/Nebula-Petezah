@@ -19,12 +19,6 @@
       "categories": ["2 player"]
     },
     {
-      "label": "Poly Track",
-      "url": "/iframe.html?url=/storage/ag/g/polytrack",
-      "imageUrl": "/storage/ag/g/polytrack/splash.png",
-      "categories": ["racing"]
-    },
-    {
       "label": "Poly Track v0.5.2",
       "url": "/iframe.html?url=/embed.html#https://www.kodub.com/apps/polytrack",
       "imageUrl": "/storage/images/main/polytrack-v2.jpeg",
