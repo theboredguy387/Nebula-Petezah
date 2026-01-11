@@ -1031,7 +1031,7 @@ app.use(
 
 const wsConnections = new Map();
 const MAX_WS_PER_IP = 1000;
-const MAX_TOTAL_WS = 900000;
+const MAX_TOTAL_WS = 2000000;
 
 function cleanupWS(ip, req = null) {
   const actualIP = req ? toIPv4(null, req) : ip;
