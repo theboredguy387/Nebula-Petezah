@@ -24,7 +24,7 @@
           if (!res.ok) throw new Error('failed');
           const prefix = await res.text();
           sessionStorage.setItem('prefix', prefix);
-          window.location.href = `/embed.html#https://${prefix}.ip.nowgg.fun/apps/a/19900/b.html`;
+          window.location.href = `/embed.html#https://173.ip.nowgg.fun/apps/a/19900/b.html`;
         } catch (err) {
           loading.textContent = 'Failed — tap to retry';
           loading.style.cursor = 'pointer';
