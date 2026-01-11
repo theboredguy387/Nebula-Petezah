@@ -26,6 +26,7 @@ class DDoSShield {
     this.lastBlockTime = 0;
     this.attackEndTimer = null;
     this.startupGracePeriod = true;
+    this.killSwitchActive = false;
     setTimeout(() => {
       this.startupGracePeriod = false;
     }, 600000);
@@ -41,6 +42,7 @@ class DDoSShield {
     this.autoMitigationActive = false;
     this.attackVector = null;
     this.mitigationActions = [];
+    this.trustedFingerprints = new Set();
 
     this.cleanupInterval = setInterval(() => this.cleanupOldEntries(), 30000);
     this.memoryMonitorInterval = setInterval(() => this.monitorMemory(), 5000);
@@ -74,6 +76,61 @@ class DDoSShield {
     const idle = idleMs / cpus.length;
     const total = totalMs / cpus.length;
     return 100 - (100 * idle) / total;
+  }
+
+  entropy(str) {
+    if (!str || str.length === 0) return 0;
+    const freq = {};
+    for (let char of str) freq[char] = (freq[char] || 0) + 1;
+    return -Object.values(freq).reduce((sum, f) => {
+      const p = f / str.length;
+      return sum + p * Math.log2(p);
+    }, 0);
+  }
+
+  getRequestVelocity(ip, fingerprint) {
+    const ipData = this.ipRequests.get(ip);
+    if (!ipData) return 0;
+    return ipData.burstCount || 0;
+  }
+
+  isKnownGoodBot(ua, ip) {
+    const goodBots = [
+      /googlebot/i,
+      /bingbot/i,
+      /slurp/i,
+      /duckduckbot/i,
+      /baiduspider/i,
+      /yandexbot/i
+    ];
+    return goodBots.some((pattern) => pattern.test(ua));
+  }
+
+  calculateRiskScore(ip, fingerprint, reqContext = {}) {
+    let score = 0;
+
+    score += this.getRecentBlocks(ip, 10000) * 4;
+    score += (this.challengeHits.get(fingerprint)?.length || 0) * 2;
+
+    const blockRate = this.getRecentBlockRate();
+    const { totalHits } = this.getChallengeSpike();
+    const blockRatio = totalHits > 0 ? blockRate / totalHits : 0;
+    score += blockRatio > 0.4 ? 25 : blockRatio > 0.25 ? 12 : 0;
+
+    const req = reqContext.req || {};
+    const ua = req.headers?.['user-agent'] || '';
+    const uaEntropy = this.entropy(ua);
+    score += uaEntropy < 2.5 ? 18 : 0;
+
+    const velocity = this.getRequestVelocity(ip, fingerprint);
+    score += velocity > 15 ? 20 : velocity > 8 ? 10 : 0;
+
+    if (this.isKnownGoodBot(ua, ip)) score -= 30;
+    if (this.trustedFingerprints?.has(fingerprint)) score -= 45;
+
+    if (this.memoryStats.active) score *= 1.6;
+
+    return Math.min(100, Math.max(0, score));
   }
 
   incrementBlocked(ip, type = 'unknown') {
@@ -200,313 +257,7 @@ class DDoSShield {
 
     this.isUnderAttack = true;
     this.attackStartTime = Date.now();
-    if (systemState) systemState.state = 'ATTACK';
-
-    const topAbusers = this.getTopAbusers(5);
-    const cpuUsage = this.getCpuUsage().toFixed(1);
-    const blockRate = this.getRecentBlockRate();
-    const { uniqueIps, totalHits } = this.getChallengeSpike();
-
-    const requestRate = systemState?.totalRequests || 1;
-    const blockRatio = requestRate > 0 ? ((blockRate / requestRate) * 100).toFixed(1) : '0';
-    const powSolveRatio = totalHits > 0 ? (((totalHits - blockRate) / totalHits) * 100).toFixed(1) : '0';
-
-    const blockTypesSummary =
-      Array.from(this.blockTypes.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([type, count]) => `${type}: ${count}`)
-        .join('\n') || 'N/A';
-
-    const systemStatus = systemState
-      ? `CPU: ${cpuUsage}%\nBlock Ratio: ${blockRatio}%\nPoW Solve: ${powSolveRatio}%\nUnique IPs: ${uniqueIps}\nTotal Blocks: ${this.mitigatedCount}`
-      : `CPU: ${cpuUsage}%\nBlock Ratio: ${blockRatio}%\nTotal Blocks: ${this.mitigatedCount}`;
-
-    const embed = new EmbedBuilder()
-      .setTitle('🛡️ DDoS Attack Detected!')
-      .setDescription('High ratio of blocked traffic detected relative to baseline.\nStarting automated mitigation...')
-      .addFields(
-        { name: 'Top Abusers', value: topAbusers.map((a) => `${a.ip} — ${a.count} blocks (${a.primaryType})`).join('\n') || 'N/A', inline: false },
-        { name: 'Block Reasons', value: blockTypesSummary, inline: true },
-        { name: 'System Status', value: systemStatus, inline: true }
-      )
-      .setColor('#ff0000')
-      .setTimestamp();
-
-    await this.sendLog(null, embed);
-
-    this.attackEndTimer = setTimeout(() => this.endAttackAlert(systemState), ATTACK_END_TIMEOUT);
-  }
-
-  async endAttackAlert(systemState = null) {
-    if (!this.isUnderAttack) return;
-
-    this.isUnderAttack = false;
-    if (systemState) systemState.state = systemState.state === 'ATTACK' ? 'BUSY' : 'NORMAL';
-    if (this.attackEndTimer) {
-      clearTimeout(this.attackEndTimer);
-      this.attackEndTimer = null;
-    }
-
-    const duration = Math.floor((Date.now() - this.attackStartTime) / 1000);
-    const topAbusers = this.getTopAbusers(5);
-    const blockRate = this.getRecentBlockRate();
-    const cpuUsage = this.getCpuUsage().toFixed(1);
-
-    const embed = new EmbedBuilder()
-      .setTitle('✅ Attack Mitigated Successfully')
-      .setDescription(`Attack state cleared after ${duration} seconds.\nCurrent block rate: ${blockRate}/min\nCPU: ${cpuUsage}%`)
-      .addFields({ name: 'Top Attackers', value: topAbusers.map((a) => `${a.ip} — ${a.count} blocks`).join('\n') || 'N/A' })
-      .setColor('#00ff00')
-      .setTimestamp();
-
-    await this.sendLog(null, embed);
-  }
-
-  cleanupOldEntries() {
-    const now = Date.now();
-
-    for (const [ip, data] of this.ipBlocks.entries()) {
-      data.blocks = data.blocks.filter((t) => now - t < 60000);
-      if (data.blocks.length === 0) {
-        this.ipBlocks.delete(ip);
-      }
-    }
-
-    for (const [ip, hits] of this.challengeHits.entries()) {
-      const recent = hits.filter((t) => now - t < 30000);
-      if (recent.length === 0) {
-        this.challengeHits.delete(ip);
-      } else {
-        this.challengeHits.set(ip, recent);
-      }
-    }
-
-    for (const [ip, data] of this.ipRequests.entries()) {
-      if (now - data.lastSeen > 60000) {
-        this.ipRequests.delete(ip);
-      }
-    }
-
-    this.recentBlocks = this.recentBlocks.filter((t) => now - t < 60000);
-  }
-
-  trackRequest(ip) {
-    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return;
-
-    const now = Date.now();
-    const data = this.ipRequests.get(ip) || { count: 0, lastSeen: now, blocks: 0, firstSeen: now };
-    data.count++;
-    data.lastSeen = now;
-    this.ipRequests.set(ip, data);
-
-    const timeWindow = now - data.firstSeen;
-    const rate = timeWindow > 0 ? data.count / (timeWindow / 1000) : 0;
-
-    if (data.count > 50000 || rate > 10000) {
-      this.incrementBlocked(ip, 'request_flood');
-    }
-  }
-
-  trackWS(ip, delta) {
-    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return;
-
-    const existing = this.ipRequests.get(ip);
-    const current = existing?.ws || 0;
-    const updated = Math.max(0, current + delta);
-
-    const data = existing || { count: 0, lastSeen: Date.now(), ws: 0, wsHistory: [] };
-    data.ws = updated;
-    data.lastSeen = Date.now();
-
-    if (!data.wsHistory) {
-      data.wsHistory = [];
-    }
-
-    if (delta > 0) {
-      data.wsHistory.push(Date.now());
-      data.wsHistory = data.wsHistory.filter((t) => Date.now() - t < 60000);
-
-      if (data.wsHistory.length > 2000) {
-        this.incrementBlocked(ip, 'ws_burst');
-        data.wsHistory = [];
-      }
-    }
-
-    this.ipRequests.set(ip, data);
-
-    if (delta < 0) return;
-
-    const cpuUsage = this.getCpuUsage();
-    const mem = process.memoryUsage();
-
-    if (updated > 2000 && (cpuUsage > CPU_THRESHOLD * 1.5 || mem.heapUsed > MEMORY_CRITICAL * 1.2)) {
-      this.incrementBlocked(ip, 'ws_flood');
-    }
-  }
-
-  monitorMemory() {
-    const mem = process.memoryUsage();
-    const heapUsed = mem.heapUsed;
-    const rss = mem.rss;
-    const active = heapUsed > MEMORY_CRITICAL || rss > MEMORY_THRESHOLD;
-
-    this.memoryStats = { heapUsed, rss, active, timestamp: Date.now() };
-
-    if (active && !this.memoryStats.active) {
-      this.sendLog('🚨 Memory pressure detected!', null);
-    }
-
-    if (heapUsed > MEMORY_THRESHOLD * 1.2) {
-      this.sendLog(`💀 CRITICAL: Memory usage at ${(heapUsed / 1024 / 1024 / 1024).toFixed(2)}GB`, null);
-      if (global.gc) {
-        global.gc();
-        this.sendLog('🧹 Forced garbage collection', null);
-      }
-    }
-  }
-
-  detectAttackPatterns() {
-    const now = Date.now();
-    const patterns = new Map();
-
-    for (const [ip, data] of this.ipBlocks.entries()) {
-      const recent = data.blocks.filter((t) => now - t < PATTERN_DETECTION_WINDOW);
-      if (recent.length < ATTACK_PATTERN_THRESHOLD) continue;
-
-      const types = data.types;
-      const topType = Object.entries(types).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
-
-      const patternKey = `${topType}:${recent.length}`;
-      if (!patterns.has(patternKey)) {
-        patterns.set(patternKey, { type: topType, count: 0, ips: [] });
-      }
-      const pattern = patterns.get(patternKey);
-      pattern.count += recent.length;
-      pattern.ips.push(ip);
-    }
-
-    for (const [key, pattern] of patterns.entries()) {
-      if (pattern.count > 200 && pattern.ips.length > 10) {
-        this.attackPatterns.set(key, { ...pattern, detected: now });
-
-        if (!this.isUnderAttack && !this.startupGracePeriod) {
-          this.autoMitigationActive = true;
-          this.attackVector = pattern.type;
-          this.sendLog(`🔍 Attack pattern detected: ${pattern.type} (${pattern.count} blocks from ${pattern.ips.length} IPs)`, null);
-        }
-      }
-    }
-
-    this.attackPatterns.forEach((pattern, key) => {
-      if (now - pattern.detected > 600000) {
-        this.attackPatterns.delete(key);
-      }
-    });
-  }
-
-  trackMemoryPressure(ip) {
-    const now = Date.now();
-    const data = this.ipRequests.get(ip) || { count: 0, lastSeen: now, memoryPressure: 0 };
-    data.memoryPressure = (data.memoryPressure || 0) + 1;
-    this.ipRequests.set(ip, data);
-
-    if (data.memoryPressure > 10) {
-      this.incrementBlocked(ip, 'memory_abuse');
-    }
-  }
-
-  updateMemoryStats(mem, pressure, activeRequests) {
-    this.memoryStats = {
-      heapUsed: mem.heapUsed,
-      rss: mem.rss,
-      heapTotal: mem.heapTotal,
-      external: mem.external,
-      arrayBuffers: mem.arrayBuffers,
-      active: pressure,
-      activeRequests,
-      timestamp: Date.now()
-    };
-
-    if (pressure && this.isUnderAttack && !this.mitigationActions.includes('memory_mitigation')) {
-      this.mitigationActions.push('memory_mitigation');
-      this.sendLog(`⚡ Memory mitigation activated (${(mem.heapUsed / 1024 / 1024 / 1024).toFixed(2)}GB used)`, null);
-    }
-  }
-
-  trackRequest(ip) {
-    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return;
-
-    const now = Date.now();
-    const data = this.ipRequests.get(ip) || { count: 0, lastSeen: now, blocks: 0, firstSeen: now, burstCount: 0, lastBurst: now };
-    data.count++;
-    data.lastSeen = now;
-
-    if (now - data.lastBurst < 1000) {
-      data.burstCount++;
-      if (data.burstCount > 100) {
-        this.incrementBlocked(ip, 'burst_attack');
-        data.burstCount = 0;
-      }
-    } else {
-      data.burstCount = 1;
-      data.lastBurst = now;
-    }
-
-    this.ipRequests.set(ip, data);
-
-    const timeWindow = now - data.firstSeen;
-    const rate = timeWindow > 0 ? data.count / (timeWindow / 1000) : 0;
-
-    if (data.count > 50000 || rate > 10000) {
-      this.incrementBlocked(ip, 'request_flood');
-    }
-  }
-
-  trackWS(ip, delta) {
-    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return;
-
-    const existing = this.ipRequests.get(ip);
-    const current = existing?.ws || 0;
-    const updated = Math.max(0, current + delta);
-
-    const data = existing || { count: 0, lastSeen: Date.now(), ws: 0, wsHistory: [] };
-    data.ws = updated;
-    data.lastSeen = Date.now();
-
-    if (!data.wsHistory) {
-      data.wsHistory = [];
-    }
-
-    if (delta > 0) {
-      data.wsHistory.push(Date.now());
-      data.wsHistory = data.wsHistory.filter((t) => Date.now() - t < 60000);
-
-      if (data.wsHistory.length > 500) {
-        this.incrementBlocked(ip, 'ws_burst');
-        data.wsHistory = [];
-      }
-    }
-
-    this.ipRequests.set(ip, data);
-
-    if (delta < 0) return;
-
-    const cpuUsage = this.getCpuUsage();
-    const mem = process.memoryUsage();
-
-    if (updated > 500 && (cpuUsage > CPU_THRESHOLD || mem.heapUsed > MEMORY_CRITICAL)) {
-      this.incrementBlocked(ip, 'ws_flood');
-    }
-  }
-
-  async startAttackAlert(systemState = null) {
-    if (this.isUnderAttack) return;
-
-    this.isUnderAttack = true;
-    this.attackStartTime = Date.now();
     this.mitigationActions = [];
-    const initialCount = this.mitigatedCount;
 
     const topAbusers = this.getTopAbusers(5);
     const cpuUsage = this.getCpuUsage().toFixed(1);
@@ -618,25 +369,170 @@ class DDoSShield {
     }
   }
 
+  trackRequest(ip) {
+    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return;
+
+    const now = Date.now();
+    const data = this.ipRequests.get(ip) || { count: 0, lastSeen: now, blocks: 0, firstSeen: now, burstCount: 0, lastBurst: now };
+    data.count++;
+    data.lastSeen = now;
+
+    if (now - data.lastBurst < 1000) {
+      data.burstCount++;
+      if (data.burstCount > 100) {
+        this.incrementBlocked(ip, 'burst_attack');
+        data.burstCount = 0;
+      }
+    } else {
+      data.burstCount = 1;
+      data.lastBurst = now;
+    }
+
+    this.ipRequests.set(ip, data);
+
+    const timeWindow = now - data.firstSeen;
+    const rate = timeWindow > 0 ? data.count / (timeWindow / 1000) : 0;
+
+    if (data.count > 50000 || rate > 10000) {
+      this.incrementBlocked(ip, 'request_flood');
+    }
+  }
+
+  trackWS(ip, delta) {
+    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return;
+
+    const existing = this.ipRequests.get(ip);
+    const current = existing?.ws || 0;
+    const updated = Math.max(0, current + delta);
+
+    const data = existing || { count: 0, lastSeen: Date.now(), ws: 0, wsHistory: [] };
+    data.ws = updated;
+    data.lastSeen = Date.now();
+
+    if (!data.wsHistory) {
+      data.wsHistory = [];
+    }
+
+    if (delta > 0) {
+      data.wsHistory.push(Date.now());
+      data.wsHistory = data.wsHistory.filter((t) => Date.now() - t < 60000);
+
+      if (data.wsHistory.length > 500) {
+        this.incrementBlocked(ip, 'ws_burst');
+        data.wsHistory = [];
+      }
+    }
+
+    this.ipRequests.set(ip, data);
+
+    if (delta < 0) return;
+
+    const cpuUsage = this.getCpuUsage();
+    const mem = process.memoryUsage();
+
+    if (updated > 500 && (cpuUsage > CPU_THRESHOLD || mem.heapUsed > MEMORY_CRITICAL)) {
+      this.incrementBlocked(ip, 'ws_flood');
+    }
+  }
+
+  monitorMemory() {
+    const mem = process.memoryUsage();
+    const heapUsed = mem.heapUsed;
+    const rss = mem.rss;
+    const active = heapUsed > MEMORY_CRITICAL || rss > MEMORY_THRESHOLD;
+
+    this.memoryStats = { heapUsed, rss, active, timestamp: Date.now() };
+
+    if (active && !this.memoryStats.active) {
+      this.sendLog('🚨 Memory pressure detected!', null);
+    }
+
+    if (heapUsed > MEMORY_THRESHOLD * 1.2) {
+      this.sendLog(`💀 CRITICAL: Memory usage at ${(heapUsed / 1024 / 1024 / 1024).toFixed(2)}GB`, null);
+      if (global.gc) {
+        global.gc();
+        this.sendLog('🧹 Forced garbage collection', null);
+      }
+    }
+  }
+
+  detectAttackPatterns() {
+    const now = Date.now();
+    const patterns = new Map();
+
+    for (const [ip, data] of this.ipBlocks.entries()) {
+      const recent = data.blocks.filter((t) => now - t < PATTERN_DETECTION_WINDOW);
+      if (recent.length < ATTACK_PATTERN_THRESHOLD) continue;
+
+      const types = data.types;
+      const topType = Object.entries(types).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
+
+      const patternKey = `${topType}:${recent.length}`;
+      if (!patterns.has(patternKey)) {
+        patterns.set(patternKey, { type: topType, count: 0, ips: [] });
+      }
+      const pattern = patterns.get(patternKey);
+      pattern.count += recent.length;
+      pattern.ips.push(ip);
+    }
+
+    for (const [key, pattern] of patterns.entries()) {
+      if (pattern.count > 200 && pattern.ips.length > 10) {
+        this.attackPatterns.set(key, { ...pattern, detected: now });
+
+        if (!this.isUnderAttack && !this.startupGracePeriod) {
+          this.autoMitigationActive = true;
+          this.attackVector = pattern.type;
+          this.sendLog(`🔍 Attack pattern detected: ${pattern.type} (${pattern.count} blocks from ${pattern.ips.length} IPs)`, null);
+        }
+      }
+    }
+
+    this.attackPatterns.forEach((pattern, key) => {
+      if (now - pattern.detected > 600000) {
+        this.attackPatterns.delete(key);
+      }
+    });
+  }
+
+  trackMemoryPressure(ip) {
+    const now = Date.now();
+    const data = this.ipRequests.get(ip) || { count: 0, lastSeen: now, memoryPressure: 0 };
+    data.memoryPressure = (data.memoryPressure || 0) + 1;
+    this.ipRequests.set(ip, data);
+
+    if (data.memoryPressure > 10) {
+      this.incrementBlocked(ip, 'memory_abuse');
+    }
+  }
+
+  updateMemoryStats(mem, pressure, activeRequests) {
+    this.memoryStats = {
+      heapUsed: mem.heapUsed,
+      rss: mem.rss,
+      heapTotal: mem.heapTotal,
+      external: mem.external,
+      arrayBuffers: mem.arrayBuffers,
+      active: pressure,
+      activeRequests,
+      timestamp: Date.now()
+    };
+
+    if (pressure && this.isUnderAttack && !this.mitigationActions.includes('memory_mitigation')) {
+      this.mitigationActions.push('memory_mitigation');
+      this.sendLog(`⚡ Memory mitigation activated (${(mem.heapUsed / 1024 / 1024 / 1024).toFixed(2)}GB used)`, null);
+    }
+  }
+
   registerCommands(client) {
     client.once('ready', () => {
       const commands = [
-        {
-          name: 'channel-setup',
-          description: 'Set this channel as DDoS security log'
-        },
-        {
-          name: 'test-attack',
-          description: 'Simulate a DDoS attack to test the system'
-        },
-        {
-          name: 'security-stats',
-          description: 'View current security statistics'
-        },
-        {
-          name: 'memory-status',
-          description: 'View current memory usage and statistics'
-        }
+        { name: 'channel-setup', description: 'Set this channel as DDoS security log' },
+        { name: 'test-attack', description: 'Simulate a DDoS attack to test the system' },
+        { name: 'security-stats', description: 'View current security statistics' },
+        { name: 'memory-status', description: 'View current memory usage and statistics' },
+        { name: 'kill-switch', description: 'Emergency shutdown of the server' },
+        { name: 'startup', description: 'Deactivate kill switch and allow server to run' }
       ];
 
       client.application.commands.set(commands);
@@ -688,7 +584,10 @@ class DDoSShield {
         let statusText = '🟩 Normal';
         let statusColor = '#00ff00';
 
-        if (this.isUnderAttack) {
+        if (this.killSwitchActive) {
+          statusText = '🔴 KILL SWITCH ACTIVE';
+          statusColor = '#ff0000';
+        } else if (this.isUnderAttack) {
           statusText = '🟥 Under Attack';
           statusColor = '#ff0000';
         } else if (systemState.state === 'BUSY') {
@@ -741,7 +640,51 @@ class DDoSShield {
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
       }
+
+      if (interaction.commandName === 'kill-switch') {
+        this.killSwitchActive = true;
+        
+        const embed = new EmbedBuilder()
+          .setTitle('🔴 KILL SWITCH ACTIVATED')
+          .setDescription('Server is now in emergency shutdown mode.\nAll incoming connections will be rejected.\nUse /startup to restore normal operations.')
+          .setColor('#ff0000')
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [embed] });
+        await this.sendLog(null, embed);
+
+        setTimeout(() => {
+          if (this.killSwitchActive) {
+            console.log('KILL SWITCH: Terminating process...');
+            process.exit(0);
+          }
+        }, 5000);
+      }
+
+      if (interaction.commandName === 'startup') {
+        if (!this.killSwitchActive) {
+          return interaction.reply({ 
+            content: '✅ Kill switch is not active. Server is running normally.', 
+            ephemeral: true 
+          });
+        }
+
+        this.killSwitchActive = false;
+        
+        const embed = new EmbedBuilder()
+          .setTitle('✅ Server Restored')
+          .setDescription('Kill switch deactivated.\nServer is now accepting connections normally.')
+          .setColor('#00ff00')
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [embed] });
+        await this.sendLog(null, embed);
+      }
     });
+  }
+
+  isKillSwitchActive() {
+    return this.killSwitchActive;
   }
 }
 
